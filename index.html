@@ -1,0 +1,1715 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GPS Ultra-Persistente (Fixed Layout)</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <style>
+        /* --- ESTRUCTURA CRÍTICA DE LAYOUT (NO TOCAR) --- */
+        * { box-sizing: border-box; }
+        
+        html, body { 
+            height: 100%; /* Fuerza la altura al 100% de la ventana visible */
+            margin: 0; 
+            padding: 0;
+            overflow: hidden; /* Evita que toda la página haga scroll, solo las listas */
+            background-color: #4a76c0; 
+            font-family: Arial, sans-serif; 
+        }
+
+        .container { 
+            width: 100%; 
+            max-width: 480px; 
+            height: 100%; /* Ocupa el 100% del body */
+            margin: 0 auto; /* Centrado horizontal */
+            padding: 10px; 
+            
+            /* AQUÍ ESTÁ EL ESPACIO INFERIOR DE 10PX QUE PEDISTE */
+            padding-bottom: 10px; 
+            
+            display: flex; 
+            flex-direction: column; /* Organiza verticalmente */
+            color: white; 
+        }
+
+        /* --- ELEMENTOS DE LA INTERFAZ --- */
+        
+        /* ÁREA SUPERIOR (GPS, INPUTS, ETC) - No crece, tamaño fijo */
+        .gps-status-bar, .server-status-bar, .grid-row, #loginInterface, #contadoresIndividuales {
+            flex-shrink: 0; 
+        }
+
+        /* ÁREA DE CONTENIDO PRINCIPAL (LISTAS) - ESTA ES LA QUE CRECE */
+        .content-area { 
+            background-color: #1a3a70; 
+            border: 1px solid white; 
+            border-radius: 5px; 
+            
+            /* FLEXIBILIDAD */
+            flex: 1; /* Ocupa todo el espacio disponible sobrante */
+            display: flex; 
+            flex-direction: column; 
+            
+            /* SCROLL INTERNO */
+            overflow-y: auto; 
+            min-height: 0; /* Fix para Firefox/Flexbox */
+            
+            /* AQUÍ ESTÁ EL ESPACIO DE 10PX ANTES DEL BOTÓN */
+            margin-top: 5px;
+            margin-bottom: 10px; 
+        }
+
+        /* BOTÓN DE GUARDAR - SIEMPRE VISIBLE AL FINAL SI NO ESTÁ HIDDEN */
+        .save-btn { 
+            background-color: #ffffff; 
+            color: #4e7a3a; 
+            border: 2px solid white; 
+            padding: 15px; 
+            width: 100%; 
+            font-size: 16px; 
+            font-weight: bold; 
+            border-radius: 12px; 
+            cursor: pointer; 
+            text-transform: uppercase; 
+            box-shadow: 0 -4px 15px rgba(0,0,0,0.3); 
+            
+            /* COMPORTAMIENTO FLEX */
+            flex-shrink: 0; /* No permitimos que se encoja */
+            height: 50px;   /* Altura fija asegurada */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* --- ESTILOS DECORATIVOS --- */
+        .gps-status-bar {
+            background: rgba(0,0,0,0.5); color: #00ff2b; font-size: 10px; padding: 5px; border-radius: 5px; margin-bottom: 5px; display: flex; justify-content: space-between; border: 1px solid rgba(255,255,255,0.2);
+        }
+        .gps-searching { color: #ffcc00; }
+
+        .server-status-bar {
+            padding: 12px; margin-bottom: 8px; border-radius: 5px; font-weight: bold; font-size: 14px; text-transform: uppercase; border: 1px solid rgba(255,255,255,0.3); transition: background-color 0.3s ease;
+        }
+        .server-loading { background-color: #ff9800; color: white; }
+        .server-online { background-color: #28a745; color: white; }
+        .server-offline { background-color: #dc3545; color: white; }
+        .server-syncing { background-color: #007bff; color: white; }
+
+        .grid-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; width: 100%; }
+        .label-box { border: 1px solid white; padding: 8px; font-size: 13px; font-weight: bold; text-transform: uppercase; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.1); height: 40px; }
+        
+        select, input[type="time"], input[type="text"], input[type="date"], input[type="password"], textarea { width: 100%; padding: 8px; border: 1px solid #1a3a70; background-color: white; height: 40px; font-weight: bold; font-size: 16px; color: black; }
+        
+        .login-label { font-size: 18px; font-weight: bold; color: white; text-transform: uppercase; margin-top: 20px; margin-bottom: 5px; border: 1px solid white; padding: 5px; background: rgba(255,255,255,0.2); }
+        .login-input { border: 2px solid #1a3a70; text-align: center; }
+        .btn-ingresar { background-color: #70ad47; color: white; font-size: 20px; font-weight: bold; padding: 15px; width: 100%; border: 1px solid #000; border-radius: 8px; margin-top: 30px; cursor: pointer; text-transform: uppercase; }
+
+        .motivo-container { margin-top: 10px; background: #1a3a70; border: 1px solid white; padding: 10px; border-radius: 5px; width: 100%; }
+        .motivo-header { background: #4a76c0; padding: 10px; font-weight: bold; font-size: 16px; margin-bottom: 10px; text-transform: uppercase; }
+        textarea#motivoTraslado { height: 80px; resize: none; text-transform: uppercase; }
+
+        .counter-container { display: flex; justify-content: space-between; margin: 10px 0; gap: 5px; }
+        .counter-box { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; font-weight: bold; }
+        .count-value { background-color: #1a3a70; border: 1px solid white; padding: 5px; color: #00ff2b; width: 100%; text-align: center; border-radius: 4px; font-size: 16px; }
+        
+        .fixed-header-row { display: grid; background-color: #4a76c0; border-bottom: 1px solid white; flex-shrink: 0; }
+        .header-item { color: white; padding: 8px; font-weight: bold; border: 0.2px solid rgba(255,255,255,0.3); text-transform: uppercase; font-size: 11px; }
+        
+        .scrollable-list { overflow-y: auto; flex-grow: 1; width: 100%; background-color: #1a3a70; -webkit-overflow-scrolling: touch; padding-bottom: 10px; }
+        
+        .dashboard-view { display: flex; flex-direction: column; gap: 10px; padding: 10px; overflow-y: auto; flex-grow: 1; }
+        .chart-card { background: white; border: 1px solid #bbb; padding: 10px; display: flex; flex-direction: column; align-items: center; position: relative; border-radius: 4px; flex-shrink: 0; }
+        .chart-title { font-size: 15px; font-weight: bold; color: #1a3a70; margin-bottom: 5px; text-transform: uppercase; }
+        .canvas-container { width: 100%; height: 140px; position: relative; }
+        
+        .badge { position: absolute; bottom: 40px; border: 2px solid red; background: white; color: black; padding: 3px 0; font-weight: bold; font-size: 15px; z-index: 10; width: 50px; text-align: center; }
+        .badge-left { left: 15px; }
+        .badge-right { right: 15px; }
+        .report-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; }
+        .report-cell { background-color: #e2eaf4; color: black; border: 0.5px solid #ccc; padding: 8px; font-weight: bold; display: flex; justify-content: center; align-items: center; min-height: 40px; font-size: 15px; }
+        .text-on { color: #00ad1d !important; }
+        .text-off { color: #ff0000 !important; }
+        .manual-grid { display: grid; grid-template-columns: 1fr 0.6fr 0.6fr 1.2fr; border-bottom: 1px solid white; }
+        .manual-cell { padding: 10px; border: 0.2px solid rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; }
+        .programado-grid { display: grid; grid-template-columns: 1.2fr 0.8fr 0.8fr 0.8fr; border-bottom: 1px solid white; }
+        .prog-cell { padding: 5px; border: 0.2px solid rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; }
+        .prog-input-cell { background: white; color: black; border: 1px solid #ccc; height: 30px; width: 90%; text-align: center; }
+        .habilitar-grid { display: grid; grid-template-columns: 1fr 1.2fr 0.6fr; gap: 5px; padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); align-items: center; }
+        .status-box { padding: 8px; border-radius: 4px; font-weight: bold; text-align: center; font-size: 11px; border: 1px solid white; text-transform: uppercase; }
+        .status-habilitada { background-color: #28a745; color: white; }
+        .status-deshabilitada { background-color: #ff0000; color: yellow; }
+        .action-btn { background: white; border: none; border-radius: 5px; padding: 5px; cursor: pointer; display: flex; justify-content: center; align-items: center; height: 35px; font-size: 20px; }
+        .air-row { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .air-label { background-color: #4a76c0; border: 1px solid white; padding: 8px; width: 60%; font-weight: bold; color: white; font-size: 14px; text-align: center; }
+        .status-btn { color: white; border: none; padding: 10px; width: 35%; font-weight: bold; border-radius: 8px; cursor: pointer; font-size: 14px; }
+        .validar-label-on { background-color: #28a745 !important; color: white !important; }
+        .validar-label-off { background-color: #ff0000 !important; color: yellow !important; }
+        .validar-check-btn { background: white; border: none; border-radius: 5px; width: 35%; height: 40px; cursor: pointer; font-size: 22px; display: flex; align-items: center; justify-content: center; }
+        .mantenimiento-label { background-color: #ff0000; color: white; padding: 10px; width: 35%; font-weight: bold; border-radius: 8px; font-size: 12px; text-align: center; border: 1px solid white; }
+        .hidden { display: none !important; }
+        .switch { position: relative; display: inline-block; width: 60px; height: 30px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ff0000; transition: .4s; border-radius: 34px; border: 2px solid white; }
+        .slider:before { position: absolute; content: ""; height: 22px; width: 22px; left: 4px; bottom: 2px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #28a745; }
+        input:checked + .slider:before { transform: translateX(26px); }
+        input:indeterminate + .slider { background-color: #ff9800 !important; }
+        input:indeterminate + .slider:before { transform: translateX(13px); }
+        .taller-card { background: #000; border: 1px solid white; padding: 8px; margin-bottom: 8px; border-radius: 4px; }
+        .taller-row-top { display: grid; grid-template-columns: 1fr 1.5fr; gap: 4px; margin-bottom: 4px; }
+        .taller-box-id { background: #bfbfbf; color: #000; font-weight: bold; padding: 8px; border: 1px solid white; font-size: 14px; display: flex; align-items: center; justify-content: center; }
+        .taller-box-fecha { background: #bfbfbf; color: #000; font-weight: bold; padding: 8px; border: 1px solid white; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+        .taller-row-mid { display: grid; grid-template-columns: 1fr 1.5fr; gap: 4px; }
+        .taller-box-label { background: #bfbfbf; color: #000; font-weight: bold; padding: 8px; border: 1px solid white; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+        .taller-box-data { background: #bfbfbf; color: #000; font-weight: bold; padding: 8px; border: 1px solid white; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+        .taller-motivo-area { background: #bfbfbf; color: #000; font-weight: bold; padding: 12px; border: 1px solid white; margin-top: 4px; text-transform: uppercase; font-size: 14px; text-align: center; min-height: 60px; display: flex; align-items: center; justify-content: center; }
+        .form-mantenimiento-row { display: grid; grid-template-columns: 1fr 2fr; margin-bottom: 5px; gap: 2px; }
+        .form-label { background-color: #4a76c0; border: 1px solid white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; text-transform: uppercase; }
+        .hora-grid { display: grid; grid-template-columns: 1.2fr 1fr; }
+        .hora-cell { background-color: #e2eaf4; color: black; border: 0.5px solid #ccc; padding: 12px; font-weight: bold; font-size: 16px; display: flex; justify-content: center; align-items: center; text-transform: uppercase; }
+        .asig-header { display: grid; grid-template-columns: 1fr 2fr; margin-bottom: 5px; position: sticky; top: 0; z-index: 10; }
+        .asig-title { background-color: #4a76c0; color: white; border: 1px solid white; padding: 10px; font-weight: bold; text-align: center; text-transform: uppercase; font-size: 14px; }
+        .asig-row { display: grid; grid-template-columns: 1fr 2fr; gap: 5px; margin-bottom: 8px; align-items: stretch; }
+        .pool-name-box { background-color: #4a76c0; color: white; font-weight: bold; font-size: 16px; display: flex; align-items: center; justify-content: center; border: 1px solid white; border-radius: 4px; padding: 10px; }
+        .oper-select-box { width: 100%; height: 45px; font-size: 16px; font-weight: bold; border: 2px solid #1a3a70; border-radius: 4px; padding-left: 10px; background: white; color: black; }
+        .map-container { height: 400px; width: 100%; border: 2px solid white; border-radius: 5px; margin-top: 10px; z-index: 1; }
+        .map-controls { display: grid; grid-template-columns: 1.5fr 1fr 0.8fr; gap: 5px; margin-bottom: 10px; }
+        .map-legend-container { display: flex; justify-content: center; gap: 20px; margin-top: 10px; background: #1a3a70; padding: 10px; border-radius: 5px; border: 1px solid white; }
+        .map-check-label { color: white; font-weight: bold; display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; text-transform: uppercase; background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 4px; border: 1px solid transparent; transition: all 0.2s; }
+        .map-check-label:active { transform: scale(0.95); }
+        .chk-input { width: 20px; height: 20px; cursor: pointer; accent-color: #00ff2b; }
+
+    </style>
+</head>
+<body onload="iniciarSistema()">
+    <div class="container">
+        <div class="gps-status-bar" id="gpsBar">
+            <span id="gpsLabel">📍 GPS: BUSCANDO SEÑAL...</span>
+            <span id="gpsCoords">---, ---</span>
+        </div>
+
+        <div id="serverStatus" class="server-status-bar server-loading">
+            🟠 CONECTANDO CON SERVIDOR...
+        </div>
+
+        <input type="hidden" id="tempLat" value="0.000000">
+        <input type="hidden" id="tempLon" value="0.000000">
+        
+        <div class="grid-row">
+            <div id="txtHora" class="label-box">--:--:--</div>
+            <div id="txtFecha" class="label-box">--/--/----</div>
+        </div>
+
+        <div id="loginInterface">
+            <div class="login-label">USUARIO</div>
+            <input type="text" id="txtUsuario" class="login-input">
+            
+            <div class="login-label">CONTRASEÑA</div>
+            <input type="password" id="txtPassword" class="login-input">
+            
+            <button class="btn-ingresar" onclick="validarLogin()">INGRESAR</button>
+            <div style="margin-top:20px; font-size:12px; color:#ccc;">ESPERE A QUE EL SERVIDOR ESTÉ "OK" ANTES DE INGRESAR</div>
+        </div>
+
+        <div id="appInterface" class="hidden" style="width:100%; display:flex; flex-direction:column; flex: 1; min-height:0;">
+            
+            <div class="grid-row">
+                <div class="label-box">OPERACION</div>
+                <select id="operacionSelect" onchange="cambiarVista()" disabled>
+                    <option value=""></option>
+                    <option value="ENCENDER" class="op-basic">ENCENDER</option>
+                    <option value="APAGAR" class="op-basic">APAGAR</option>
+                    <option value="ON_OFF_BLOQUE" class="op-full">ON/OFF POR BLOQUE</option>
+                    <option value="REPORTE" class="op-basic">REPORTE ACTUAL</option>
+                    <option value="UBICACION" class="op-basic">CAMBIAR UBICACIÓN</option>
+                    <option value="VALIDAR" class="op-basic">VALIDAR ENCENDIDO</option>
+                    <option value="HABILITAR_PS" class="op-full">HABILITAR/DESHABILITAR PSC</option>
+                    <option value="MANTENIMIENTO" class="op-full">MODULO DE MANTENIMIENTO</option>
+                    <option value="REP_HORA" class="op-full">REPORTE DE HORAS ACUMULADAS</option>
+                    <option value="ASIG_PISCINA" class="op-full">ASIGNACION DE PISCINA</option>
+                    <option value="MAPA_RECORRIDO" class="op-full">MAPA DE RECORRIDO</option>
+                </select>
+            </div>
+
+            <div class="grid-row hidden" id="opcionReporteRow">
+                <div class="label-box">OPCION</div>
+                <select id="opcionReporteSelect" onchange="generarReporteHoras()">
+                    <option value=""></option>
+                    <option value="HORAS_AIRE">HORAS POR AIREADOR</option>
+                    <option value="HORAS_PISCINA">HORAS POR PISCINA</option>
+                </select>
+            </div>
+
+            <div class="grid-row hidden" id="mantenimientoRow">
+                <div class="label-box" style="font-size: 14px;">ACTIVIDAD</div>
+                <select id="mantenimientoSubSelect" onchange="cambiarSubActividadMantenimiento()">
+                    <option value=""></option>
+                    <option value="NUEVO">INGRESAR NUEVO AIREADOR</option>
+                    <option value="CONSULTA">CONSULTA DE AIREADORES EN TALLER</option>
+                    <option value="PREVENTIVO">MANTENIMIENTO PREVENTIVO</option>
+                    <option value="REPARACIONES">REPARACIONES</option>
+                </select>
+            </div>
+
+            <div class="grid-row hidden" id="piscinaRow">
+                <div id="labelPiscinaModalidad" class="label-box">PISCINA</div>
+                <select id="piscinaSelect" onchange="cambiarPiscina()" disabled><option value=""></option></select>
+            </div>
+
+            <div class="grid-row hidden" id="rowTiemposGlobales">
+                <div style="display:flex; gap:5px; align-items:center;">
+                    <div class="label-box" style="font-size:10px; flex:1;">HORA_ON</div>
+                    <input type="time" id="globalHoraOn" onchange="replicarHoras()">
+                </div>
+                <div style="display:flex; gap:5px; align-items:center;">
+                    <div class="label-box" style="font-size:10px; flex:1;">HORA_OFF</div>
+                    <input type="time" id="globalHoraOff" onchange="replicarHoras()">
+                </div>
+            </div>
+
+            <div class="grid-row hidden" id="aireadorRow">
+                <div class="label-box">AIREADOR</div>
+                <select id="aireadorSelect" onchange="cargarDatosUbicacion()" disabled><option value=""></option></select>
+            </div>
+
+            <div id="contadoresIndividuales" class="counter-container hidden">
+                <div class="counter-box"><span>ENCENDIDOS</span><div id="countEncendidos" class="count-value">0</div></div>
+                <div class="counter-box"><span>APAGADOS</span><div id="countApagados" class="count-value" style="color:#ff4d4d">0</div></div>
+            </div>
+
+            <div class="content-area">
+                <div id="vistaDashboard" class="dashboard-view">
+                    <div class="chart-card">
+                        <div class="chart-title">AIREADORES</div>
+                        <div class="canvas-container"><canvas id="chartAires"></canvas></div>
+                        <div class="badge badge-left" id="valEnc">0</div>
+                        <div class="badge badge-right" id="valApa">0</div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-title">PISCINAS</div>
+                        <div class="canvas-container"><canvas id="chartPiscinas"></canvas></div>
+                        <div class="badge badge-left" id="valHab">0</div>
+                        <div class="badge badge-right" id="valDes">0</div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-title">MOTORES</div>
+                        <div class="canvas-container"><canvas id="chartTipos"></canvas></div>
+                        <div class="badge badge-left" id="valElec">0</div>
+                        <div class="badge badge-right" id="valMec">0</div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-title">ESTADO DE AIREADORES</div>
+                        <div class="canvas-container"><canvas id="chartOperativos"></canvas></div>
+                        <div class="badge badge-left" id="valOper">0</div>
+                        <div class="badge badge-right" id="valTall">0</div>
+                    </div>
+                </div>
+
+                <div id="vistaControl" class="hidden" style="flex-direction: column; height: 100%;">
+                    <div id="headerControl" class="fixed-header-row" style="display: grid; grid-template-columns: 1.2fr 1fr;">
+                        <div class="header-item">Aireador</div><div class="header-item">Estado</div>
+                    </div>
+                    <div id="listaAires" class="scrollable-list"></div>
+                </div>
+
+                <div id="vistaReporte" class="hidden" style="flex-direction: column; height: 100%;">
+                    <div class="fixed-header-row" style="display: grid; grid-template-columns: 1.5fr 1fr 1fr;">
+                        <div class="header-item">PISCINA</div><div class="header-item">ENCENDIDOS</div><div class="header-item">APAGADOS</div>
+                    </div>
+                    <div id="tablaReporteBody" class="scrollable-list"></div>
+                </div>
+
+                <div id="vistaUbicacion" class="hidden" style="flex-direction: column; height: 100%;">
+                    <div id="headerUbicacion" class="fixed-header-row" style="display: grid; grid-template-columns: 1fr 1fr 1.2fr;">
+                        <div class="header-item">AIREADOR</div><div class="header-item">ACTUAL</div><div class="header-item">NUEVA</div>
+                    </div>
+                    <div id="tablaUbicacionBody" class="scrollable-list">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1.2fr;">
+                            <div id="ub_nombre_aire" class="report-cell" style="background:#4a76c0; color:white; font-size:11px;">---</div>
+                            <div id="ub_actual_pisc" class="report-cell" style="background:#4a76c0; color:white; font-size:11px;">---</div>
+                            <div class="report-cell" style="padding:0;"><select id="ub_nueva_select" style="height:100%; border:none;" onchange="verificarMotivoTaller()"></select></div>
+                        </div>
+                        <div id="contenedorMotivoTaller" class="motivo-container hidden">
+                            <div class="motivo-header">DIGITE MOTIVO DE TRASLADO A TALLER</div>
+                            <textarea id="motivoTraslado" placeholder="ESCRIBA EL MOTIVO AQUÍ..." oninput="this.value = this.value.toUpperCase()"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="vistaHabilitar" class="hidden" style="flex-direction: column; height: 100%;">
+                    <div id="headerHabilitar" class="fixed-header-row" style="display: grid; grid-template-columns: 1fr 1.2fr 0.6fr;">
+                        <div class="header-item">PISCINA</div><div class="header-item">ESTADO</div><div class="header-item">OPCION</div>
+                    </div>
+                    <div id="tablaHabilitarBody" class="scrollable-list"></div>
+                </div>
+
+                <div id="vistaMantenimiento" class="hidden" style="flex-grow: 1; background-color: #1a3a70; padding: 10px; overflow-y: auto;"></div>
+
+                <div id="vistaHorasAcumuladas" class="hidden" style="flex-direction: column; height: 100%;">
+                    <div id="headerHoras" class="fixed-header-row" style="display: grid; grid-template-columns: 1.2fr 1fr;">
+                        <div class="header-item" id="labelHorasCol1">AIREADOR</div><div class="header-item">HORAS ACUMULADAS</div>
+                    </div>
+                    <div id="tablaHorasBody" class="scrollable-list"></div>
+                </div>
+
+                <div id="vistaAsignacion" class="hidden" style="flex-direction: column; height: 100%; background: #1a3a70; padding: 5px;">
+                    <div class="asig-header">
+                        <div class="asig-title">PISCINA</div>
+                        <div class="asig-title">OPERADOR</div>
+                    </div>
+                    <div id="listaAsignacionBody" class="scrollable-list" style="padding-bottom: 60px;"></div>
+                </div>
+
+                <div id="vistaMapa" class="hidden" style="flex-direction: column; height: 100%; padding: 10px; overflow-y: auto;">
+                    <div class="fixed-header-row" style="margin-bottom:10px;">
+                        <div class="header-item" style="text-align:center; width:100%;">HISTORIAL DE RUTA</div>
+                    </div>
+                    
+                    <div class="map-controls">
+                        <select id="mapaUsuarioSelect" class="form-input-container" style="height:40px; font-weight:bold; font-size:12px;">
+                        </select>
+                        <input type="date" id="fechaMapa" class="form-input-container" style="height:40px;">
+                        <button class="action-btn" style="background:#28a745; color:white; font-weight:bold;" onclick="cargarMapaRecorrido()">VER</button>
+                    </div>
+
+                    <div id="map" class="map-container"></div>
+                    <div id="infoMapa" style="margin-top:5px; font-size:12px; text-align:center;">Selecciona Usuario y Fecha.</div>
+                    
+                    <div class="map-legend-container">
+                        <label class="map-check-label" style="border-bottom: 3px solid #007bff;">
+                            <input type="checkbox" id="chkMapOn" class="chk-input" checked onchange="renderizarMapaDesdeCache()">
+                            <span style="color:#9ecfff;">ENCENDIDOS (AZUL)</span>
+                        </label>
+                        <label class="map-check-label" style="border-bottom: 3px solid #ff0000;">
+                            <input type="checkbox" id="chkMapOff" class="chk-input" checked onchange="renderizarMapaDesdeCache()">
+                            <span style="color:#ff9999;">APAGADOS (ROJO)</span>
+                        </label>
+                    </div>
+                </div>
+
+            </div>
+
+            <button id="mainActionBtn" class="save-btn hidden" onclick="confirmarRegistro()">GUARDAR CAMBIOS</button>
+        </div>
+    </div>
+
+    <script>
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxGLuClr5EfG0Yx8Sp1uxf6HN0qvcnGxmmn8GfXb8FAdr05lIt96OOJkJi0NVKksq8e/exec";
+
+        let ultimaLat = "0.000000", ultimaLon = "0.000000";
+        let registrosProgramadosEjecutados = {};
+        let cambiosAsignacion = {}; 
+        
+        let map = null;
+        let markersGroup = null;
+        let cachedPuntosON = [];
+        let cachedPuntosOFF = [];
+
+        let currentUserRole = ""; 
+        let currentUserName = ""; 
+        let nombreRealOperador = ""; 
+
+        // --- GESTIÓN DE MEMORIA TEMPORAL Y BLOQUEO DE RECARGA ---
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'F5' || (e.ctrlKey && e.key === 'r') || (e.metaKey && e.key === 'r')) {
+                e.preventDefault();
+                alert("⛔ RECARGA BLOQUEADA\n\nLos datos se guardan en memoria temporal.\nNo recargues para mantener la sincronización.");
+            }
+        });
+
+        window.addEventListener('beforeunload', (event) => {
+            const mensaje = "⚠️ Tienes datos en memoria temporal. Si recargas podrías interrumpir el proceso. ¿Seguro?";
+            event.preventDefault();
+            event.returnValue = mensaje;
+            return mensaje;
+        });
+
+        history.pushState(null, null, location.href);
+        window.onpopstate = function () {
+            history.go(1);
+        };
+
+        const delay = ms => new Promise(res => setTimeout(res, ms));
+
+        window.addEventListener('online', async () => {
+            const statusDiv = document.getElementById('serverStatus');
+            const pendientes = localStorage.getItem('pendingPayloads');
+            
+            if (pendientes && JSON.parse(pendientes).length > 0) {
+                statusDiv.innerText = "🌐 INTERNET DETECTADO. CARGANDO...";
+                statusDiv.className = "server-status-bar server-syncing";
+                await delay(5000); 
+                autoSyncPendientes();
+            } else {
+                statusDiv.innerText = "🟢 CONEXION CON SERVIDOR: OK";
+                statusDiv.className = "server-status-bar server-online";
+            }
+        });
+
+        window.addEventListener('offline', () => {
+            const statusDiv = document.getElementById('serverStatus');
+            statusDiv.innerText = "⚠️ MODO OFFLINE (Memoria Interna)";
+            statusDiv.className = "server-status-bar server-offline";
+        });
+
+        function iniciarSistema() {
+            gestionarGPSPersistente();
+            cargarDatos();
+            document.getElementById('loginInterface').classList.remove('hidden');
+            document.getElementById('appInterface').classList.add('hidden');
+        }
+
+        async function autoSyncPendientes() {
+            const pendientes = localStorage.getItem('pendingPayloads');
+            if (pendientes) {
+                const statusDiv = document.getElementById('serverStatus');
+                statusDiv.innerText = "🔵 SINCRONIZANDO DATOS PENDIENTES...";
+                statusDiv.className = "server-status-bar server-syncing";
+                
+                const cola = JSON.parse(pendientes);
+                while (cola.length > 0) {
+                    const item = cola[0];
+                    try {
+                        await fetch(SCRIPT_URL, {
+                            method: "POST",
+                            mode: "no-cors",
+                            headers: { "Content-Type": "text/plain" },
+                            body: JSON.stringify(item)
+                        });
+                        cola.shift(); 
+                        localStorage.setItem('pendingPayloads', JSON.stringify(cola));
+                    } catch (e) {
+                        break; 
+                    }
+                }
+                if (cola.length === 0) {
+                    localStorage.removeItem('pendingPayloads');
+                    statusDiv.innerText = "🟢 SINCRONIZACIÓN EXITOSA";
+                    statusDiv.className = "server-status-bar server-online";
+                    cargarDatos(); 
+                }
+            }
+        }
+
+        function gestionarGPSPersistente() {
+            if (!navigator.geolocation) return;
+            navigator.geolocation.watchPosition(
+                (pos) => {
+                    ultimaLat = pos.coords.latitude.toFixed(6);
+                    ultimaLon = pos.coords.longitude.toFixed(6);
+                    document.getElementById('tempLat').value = ultimaLat;
+                    document.getElementById('tempLon').value = ultimaLon;
+                    document.getElementById('gpsLabel').innerText = "📍 GPS: SEÑAL FIJADA";
+                    document.getElementById('gpsBar').classList.remove('gps-searching');
+                    document.getElementById('gpsCoords').innerText = `${ultimaLat}, ${ultimaLon}`;
+                },
+                () => {
+                    document.getElementById('gpsLabel').innerText = "⚠️ BUSCANDO SATÉLITES...";
+                    document.getElementById('gpsBar').classList.add('gps-searching');
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+        }
+
+        Chart.register(ChartDataLabels);
+        let wb, datosAires = [], listaPiscinas = [], charts = {}, colaDeRegistros = [];
+        let colaHabilitacion = {}; 
+        let piscinasProgramadas = {}; 
+
+        function getFechaActual() {
+            const d = new Date();
+            const dia = d.getDate().toString().padStart(2, '0');
+            const mes = (d.getMonth() + 1).toString().padStart(2, '0');
+            const anio = d.getFullYear();
+            return `'${dia}/${mes}/${anio}`;
+        }
+
+        function getHoraActual() {
+            const d = new Date();
+            const horas = d.getHours().toString().padStart(2, '0');
+            const minutos = d.getMinutes().toString().padStart(2, '0');
+            const segundos = d.getSeconds().toString().padStart(2, '0');
+            return `'${horas}:${minutos}:${segundos}`;
+        }
+
+        function actualizarReloj() {
+            const ahora = new Date();
+            const h = ahora.getHours().toString().padStart(2, '0');
+            const m = ahora.getMinutes().toString().padStart(2, '0');
+            const s = ahora.getSeconds().toString().padStart(2, '0');
+            const dia = ahora.getDate().toString().padStart(2, '0');
+            const mes = (ahora.getMonth() + 1).toString().padStart(2, '0');
+            const anio = ahora.getFullYear();
+            const horaActualHHMM = `${h}:${m}`;
+            
+            document.getElementById('txtHora').innerText = `${h}:${m}:${s}`;
+            document.getElementById('txtFecha').innerText = `${dia}/${mes}/${anio}`;
+
+            monitorearHorariosProgramados(horaActualHHMM);
+        }
+
+        async function monitorearHorariosProgramados(horaHHMM) {
+            if (!wb || Object.keys(piscinasProgramadas).length === 0) return;
+
+            for (const piscina in piscinasProgramadas) {
+                const prog = piscinasProgramadas[piscina];
+                let operacionARegistrar = "";
+
+                if (prog.hOn === horaHHMM) operacionARegistrar = "ENCENDER";
+                else if (prog.hOff === horaHHMM) operacionARegistrar = "APAGAR";
+
+                if (operacionARegistrar !== "") {
+                    const fechaID = getFechaActual().replace("'", "");
+                    const idUnicoMinuto = `${piscina}_${fechaID}_${horaHHMM}_${operacionARegistrar}`;
+                    
+                    if (!registrosProgramadosEjecutados[idUnicoMinuto]) {
+                        registrosProgramadosEjecutados[idUnicoMinuto] = true; 
+                        await ejecutarRegistroAutomatico(piscina, operacionARegistrar);
+                    }
+                }
+            }
+        }
+
+        function calcularHorasTrabajo(hOn, fOn, hOff, fOff) {
+            try {
+                const cleanHOn = hOn.replace("'", "");
+                const cleanFOn = fOn.replace("'", "");
+                const cleanHOff = hOff.replace("'", "");
+                const cleanFOff = fOff.replace("'", "");
+
+                const partsOn = cleanHOn.split(':');
+                const datePartsOn = cleanFOn.split('/');
+                const partsOff = cleanHOff.split(':');
+                const datePartsOff = cleanFOff.split('/');
+
+                const dOn = new Date(datePartsOn[2], datePartsOn[1]-1, datePartsOn[0], partsOn[0], partsOn[1], partsOn[2] || 0);
+                const dOff = new Date(datePartsOff[2], datePartsOff[1]-1, datePartsOff[0], partsOff[0], partsOff[1], partsOff[2] || 0);
+                
+                const diffMs = dOff - dOn;
+                if(diffMs < 0) return "'00:00:00";
+                
+                let s = Math.floor(diffMs / 1000);
+                let m = Math.floor(s / 60);
+                s = s % 60;
+                let h = Math.floor(m / 60);
+                m = m % 60;
+                
+                return `'${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+            } catch(e) { return "---"; }
+        }
+
+        async function ejecutarRegistroAutomatico(piscina, operacion) {
+            if (!wb.Sheets["Hoja 3"]) {
+                 const headers = [["AIRE", "PISCINA", "HORA_ON", "FECHA_ON", "HORA_OFF", "FECHA_OFF", "VALIDADO", "LATITUD_ON", "LONGITUD_ON", "LATITUD_OFF", "LONGITUD_OFF", "HORAS_TRABAJO"]];
+                 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(headers), "Hoja 3");
+            }
+            let sheetData = XLSX.utils.sheet_to_json(wb.Sheets["Hoja 3"], { header: 1 });
+            const lat = document.getElementById('tempLat').value;
+            const lon = document.getElementById('tempLon').value;
+            const fecha = getFechaActual();
+            const hora = getHoraActual();
+
+            const airesDePiscina = datosAires.filter(f => f[4] && f[4].toString() === piscina);
+
+            airesDePiscina.forEach(aire => {
+                const idAir = aire[0];
+                const st = obtenerUltimoEstado(idAir);
+                
+                if (operacion === "ENCENDER" && st === "APAGAR") {
+                    sheetData.push([idAir, piscina, hora, fecha, "", "", "", lat, lon, "", "", ""]);
+                } else if (operacion === "APAGAR" && st === "ENCENDER") {
+                    for (let i = sheetData.length - 1; i >= 1; i--) {
+                        if (sheetData[i][0] === idAir && sheetData[i][2] !== "" && sheetData[i][4] === "") {
+                            sheetData[i][4] = hora;
+                            sheetData[i][5] = fecha;
+                            sheetData[i][9] = lat; 
+                            sheetData[i][10] = lon; 
+                            sheetData[i][11] = calcularHorasTrabajo(sheetData[i][2], sheetData[i][3], hora, fecha);
+                            break;
+                        }
+                    }
+                }
+            });
+
+            wb.Sheets["Hoja 3"] = XLSX.utils.aoa_to_sheet(sheetData);
+            await aplicarGuardado(null);
+        }
+
+        setInterval(actualizarReloj, 1000);
+        actualizarReloj();
+
+        async function cargarDatos() {
+            const statusDiv = document.getElementById('serverStatus');
+            try {
+                if (!navigator.onLine) throw new Error("Offline");
+
+                statusDiv.innerText = "🟠 CONECTANDO CON SERVIDOR...";
+                statusDiv.className = "server-status-bar server-loading";
+
+                const ts = new Date().getTime();
+                const response = await fetch(`${SCRIPT_URL}?t=${ts}`);
+                if (!response.ok) throw new Error("Error Servidor");
+                
+                const data = await response.json();
+                
+                localStorage.setItem('localDB', JSON.stringify(data));
+                procesarDatosJSON(data);
+
+                statusDiv.innerText = "🟢 CONEXION CON SERVIDOR: OK";
+                statusDiv.className = "server-status-bar server-online";
+                
+                document.getElementById('operacionSelect').disabled = false;
+                document.getElementById('piscinaSelect').disabled = false;
+                document.getElementById('aireadorSelect').disabled = false;
+
+            } catch (e) {
+                const localData = localStorage.getItem('localDB');
+                if (localData) {
+                    procesarDatosJSON(JSON.parse(localData));
+                    statusDiv.innerText = "⚠️ MODO OFFLINE (Memoria Interna)";
+                    statusDiv.className = "server-status-bar server-offline";
+                    document.getElementById('operacionSelect').disabled = false;
+                    document.getElementById('piscinaSelect').disabled = false;
+                    document.getElementById('aireadorSelect').disabled = false;
+                } else {
+                    statusDiv.innerText = "🔴 SIN CONEXION Y SIN DATOS LOCALES";
+                    statusDiv.className = "server-status-bar server-offline";
+                    setTimeout(cargarDatos, 5000);
+                }
+            }
+        }
+
+        function procesarDatosJSON(data) {
+            wb = XLSX.utils.book_new();
+            wb.SheetNames = Object.keys(data);
+            wb.SheetNames.forEach(name => {
+                const ws = XLSX.utils.aoa_to_sheet(data[name]);
+                wb.Sheets[name] = ws;
+            });
+
+            if (!wb.Sheets["Hoja 3"]) {
+                const headers = [["AIRE", "PISCINA", "HORA_ON", "FECHA_ON", "HORA_OFF", "FECHA_OFF", "VALIDADO", "LATITUD_ON", "LONGITUD_ON", "LATITUD_OFF", "LONGITUD_OFF", "HORAS_TRABAJO"]];
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(headers), "Hoja 3");
+            }
+            if (!wb.Sheets["MOV_AIR"]) {
+                const headers = [["ID", "SERIE", "MARCA", "MODELO", "UB_ANT", "UB_ACT", "F_MOV", "LATITUD", "LONGITUD", "MOTIVO"]];
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(headers), "MOV_AIR");
+            }
+
+            datosAires = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false });
+            actualizarSelectsGlobales();
+            actualizarGraficos();
+        }
+
+        function validarLogin() {
+            if (!wb || !wb.Sheets["DB"]) {
+                alert("DATOS NO CARGADOS.\nEspere a que el servidor indique 'OK'.");
+                return;
+            }
+
+            const user = document.getElementById('txtUsuario').value.trim();
+            const pass = document.getElementById('txtPassword').value.trim();
+
+            if (user === "" || pass === "") {
+                alert("INGRESE USUARIO Y CONTRASEÑA");
+                return;
+            }
+
+            const sheetDB = wb.Sheets["DB"];
+            const datosDB = XLSX.utils.sheet_to_json(sheetDB, { header: 1, raw: false });
+
+            let usuarioValido = false;
+            let rolUsuario = "";
+            let nombreAsignado = "";
+
+            for (let i = 1; i < datosDB.length; i++) {
+                const fila = datosDB[i];
+                if (fila[4] && fila[4].toString() === user && fila[5] && fila[5].toString() === pass) {
+                    usuarioValido = true;
+                    nombreAsignado = fila[3] ? fila[3].toString().toUpperCase().trim() : "";
+                    rolUsuario = fila[6] ? fila[6].toString().toUpperCase() : "OPERADOR";
+                    break;
+                }
+            }
+
+            if (usuarioValido) {
+                currentUserRole = rolUsuario;
+                currentUserName = user.toUpperCase(); 
+                nombreRealOperador = nombreAsignado; 
+                
+                aplicarPermisosRol(currentUserRole);
+                actualizarSelectsGlobales();
+
+                document.getElementById('loginInterface').classList.add('hidden');
+                document.getElementById('appInterface').classList.remove('hidden');
+                
+                cambiarVista(); 
+            } else {
+                alert("USUARIO O CONTRASEÑA INCORRECTOS");
+            }
+        }
+
+        function aplicarPermisosRol(rol) {
+            const selectOp = document.getElementById('operacionSelect');
+            const options = selectOp.getElementsByTagName('option');
+
+            if (rol === "SUPERVISOR") {
+                for (let i = 0; i < options.length; i++) {
+                    options[i].classList.remove('hidden');
+                }
+            } else {
+                for (let i = 0; i < options.length; i++) {
+                    if (options[i].classList.contains('op-full')) {
+                        options[i].classList.add('hidden');
+                    } else {
+                        options[i].classList.remove('hidden');
+                    }
+                }
+            }
+        }
+
+        function actualizarSelectsGlobales() {
+            const sp = document.getElementById('piscinaSelect'), sn = document.getElementById('ub_nueva_select'), sa = document.getElementById('aireadorSelect');
+            if(!sp || !sn || !sa) return;
+            sp.innerHTML = sn.innerHTML = sa.innerHTML = '<option value=""></option>';
+            listaPiscinas = [];
+            const hPis = wb.Sheets[wb.SheetNames[1]];
+            if (hPis) {
+                XLSX.utils.sheet_to_json(hPis, { header: 1 }).forEach(f => {
+                    if(f[0]) {
+                        let mostrar = true;
+                        
+                        if (currentUserRole === "OPERADOR" && nombreRealOperador !== "") {
+                            const responsablePiscina = f[2] ? f[2].toString().toUpperCase().trim() : "";
+                            const nombreLogueadoNorm = nombreRealOperador.trim();
+                            
+                            if (responsablePiscina !== nombreLogueadoNorm) {
+                                mostrar = false;
+                            }
+                        }
+
+                        if (mostrar) {
+                            listaPiscinas.push(f[0]);
+                            if (f[1] !== "DESHABILITADA") {
+                                let o = document.createElement('option'); o.value = f[0]; o.textContent = f[0];
+                                sp.appendChild(o.cloneNode(true)); sn.appendChild(o);
+                            }
+                        }
+                    }
+                });
+            }
+            datosAires.slice(1).forEach(f => { if(f[0]){ let o = document.createElement('option'); o.value = f[0]; o.textContent = f[0]; sa.appendChild(o); } });
+        }
+
+        function obtenerUltimoEstado(n) {
+            const h3 = wb.Sheets["Hoja 3"];
+            if (!h3) return "APAGAR";
+            const registros = XLSX.utils.sheet_to_json(h3, { header: 1, raw: false });
+            for (let i = registros.length - 1; i >= 1; i--) {
+                if (registros[i][0] === n) {
+                    if (registros[i][2] && registros[i][2] !== "" && (!registros[i][4] || registros[i][4] === "")) return "ENCENDER";
+                    if (registros[i][4] && registros[i][4] !== "") return "APAGAR";
+                }
+            }
+            return "APAGAR";
+        }
+
+        function limpiarTextos() {
+            document.getElementById('listaAires').innerHTML = "";
+            document.getElementById('tablaReporteBody').innerHTML = "";
+            document.getElementById('tablaHabilitarBody').innerHTML = "";
+            document.getElementById('vistaMantenimiento').innerHTML = "";
+            document.getElementById('tablaHorasBody').innerHTML = "";
+            document.getElementById('listaAsignacionBody').innerHTML = "";
+            document.getElementById('piscinaSelect').value = "";
+            document.getElementById('aireadorSelect').value = "";
+            document.getElementById('globalHoraOn').value = "";
+            document.getElementById('globalHoraOff').value = "";
+            document.getElementById('mantenimientoSubSelect').value = "";
+            document.getElementById('opcionReporteSelect').value = "";
+            document.getElementById('ub_nombre_aire').innerText = "---";
+            document.getElementById('ub_actual_pisc').innerText = "---";
+            document.getElementById('contenedorMotivoTaller').classList.add('hidden');
+            document.getElementById('motivoTraslado').value = "";
+            if(document.getElementById('ub_nueva_select')) document.getElementById('ub_nueva_select').value = "";
+            document.getElementById('mainActionBtn').innerText = "GUARDAR CAMBIOS";
+            
+            document.querySelectorAll('.scrollable-list').forEach(el => el.scrollTop = 0);
+            document.getElementById('vistaMantenimiento').scrollTop = 0;
+            document.getElementById('vistaDashboard').scrollTop = 0;
+
+            actualizarContadores(0,0);
+        }
+
+        function cambiarVista() {
+            const op = document.getElementById('operacionSelect').value;
+            colaDeRegistros = [];
+            colaHabilitacion = {}; 
+            limpiarTextos();
+            ['vistaDashboard', 'vistaControl', 'vistaReporte', 'vistaUbicacion', 'vistaHabilitar', 'vistaMantenimiento', 'vistaHorasAcumuladas', 'vistaAsignacion', 'vistaMapa'].forEach(v => { 
+                const el = document.getElementById(v);
+                if(el) {
+                    el.classList.add('hidden'); 
+                    el.style.display = 'none'; 
+                }
+            });
+            ['piscinaRow','aireadorRow','rowTiemposGlobales','contadoresIndividuales','mainActionBtn', 'mantenimientoRow', 'opcionReporteRow'].forEach(id => {
+                const el = document.getElementById(id);
+                if(el) el.classList.add('hidden');
+            });
+
+            if (!op) {
+                const dash = document.getElementById('vistaDashboard');
+                if(dash) { dash.classList.remove('hidden'); dash.style.display = 'flex'; }
+                if(wb) actualizarGraficos();
+                return;
+            }
+
+            if (op === "REPORTE") {
+                const rep = document.getElementById('vistaReporte'); if(rep){ rep.classList.remove('hidden'); rep.style.display = 'flex'; }
+                generarReporte();
+            } else if (op === "UBICACION") {
+                const ubi = document.getElementById('vistaUbicacion'); if(ubi){ ubi.classList.remove('hidden'); ubi.style.display = 'flex'; }
+                document.getElementById('aireadorRow').classList.remove('hidden');
+                document.getElementById('mainActionBtn').classList.remove('hidden');
+                actualizarSelectsGlobales(); 
+            } else if (op === "HABILITAR_PS") {
+                const hab = document.getElementById('vistaHabilitar'); if(hab){ hab.classList.remove('hidden'); hab.style.display = 'flex'; }
+                document.getElementById('mainActionBtn').classList.remove('hidden');
+                generarListaHabilitacion();
+            } else if (op === "MANTENIMIENTO") {
+                const mtto = document.getElementById('vistaMantenimiento'); if(mtto){ mtto.classList.remove('hidden'); mtto.style.display = 'block'; }
+                document.getElementById('mantenimientoRow').classList.remove('hidden');
+                document.getElementById('mainActionBtn').classList.remove('hidden');
+            } else if (op === "REP_HORA") {
+                document.getElementById('opcionReporteRow').classList.remove('hidden');
+                const vHora = document.getElementById('vistaHorasAcumuladas'); if(vHora){ vHora.classList.remove('hidden'); vHora.style.display = 'flex'; }
+            } else if (op === "ASIG_PISCINA") {
+                const vAsig = document.getElementById('vistaAsignacion'); 
+                if(vAsig){ vAsig.classList.remove('hidden'); vAsig.style.display = 'flex'; }
+                document.getElementById('mainActionBtn').innerText = "REGISTRAR OPERACION"; 
+                document.getElementById('mainActionBtn').classList.remove('hidden');
+                generarVistaAsignacion();
+            } else if (op === "MAPA_RECORRIDO") {
+                const vMap = document.getElementById('vistaMapa');
+                if(vMap){ vMap.classList.remove('hidden'); vMap.style.display = 'flex'; }
+                const today = new Date();
+                document.getElementById('fechaMapa').value = today.toISOString().split('T')[0];
+                
+                // Llenar select de usuarios
+                const selUser = document.getElementById('mapaUsuarioSelect');
+                selUser.innerHTML = '<option value="">SELECCIONE USUARIO</option>';
+                const sheetDB = wb.Sheets["DB"];
+                if(sheetDB) {
+                    const datosDB = XLSX.utils.sheet_to_json(sheetDB, { header: 1 });
+                    const usuarios = [...new Set(datosDB.slice(1).map(r => r[3] ? r[3].toString().toUpperCase().trim() : "").filter(Boolean))].sort();
+                    usuarios.forEach(u => {
+                        let o = document.createElement('option');
+                        o.value = u; o.textContent = u;
+                        selUser.appendChild(o);
+                    });
+                }
+                setTimeout(() => { if(map) map.invalidateSize(); }, 200);
+
+            } else {
+                const ctrl = document.getElementById('vistaControl'); if(ctrl){ ctrl.classList.remove('hidden'); ctrl.style.display = 'flex'; }
+                document.getElementById('piscinaRow').classList.remove('hidden');
+                document.getElementById('contadoresIndividuales').classList.remove('hidden');
+                document.getElementById('mainActionBtn').classList.remove('hidden');
+                const label = document.getElementById('labelPiscinaModalidad');
+                if (op === "ON_OFF_BLOQUE") {
+                    if(label) label.innerText = "MODALIDAD";
+                    document.getElementById('piscinaSelect').innerHTML = '<option value=""></option><option value="ENCENDIDO MANUAL">ENCENDIDO MANUAL</option><option value="ENCENDIDO PROGRAMADO">ENCENDIDO PROGRAMADO</option>';
+                } else {
+                    if(label) label.innerText = "PISCINA";
+                    actualizarSelectsGlobales();
+                }
+            }
+        }
+
+        function generarVistaAsignacion() {
+            const container = document.getElementById('listaAsignacionBody');
+            container.innerHTML = "";
+            cambiosAsignacion = {};
+
+            const hPisSheet = wb.Sheets[wb.SheetNames[1]];
+            if (!hPisSheet) return;
+            
+            const datosPiscinas = XLSX.utils.sheet_to_json(hPisSheet, { header: 1, raw: false });
+            
+            const sheetDB = wb.Sheets["DB"];
+            const datosDB = XLSX.utils.sheet_to_json(sheetDB, { header: 1, raw: false });
+            const listaOperadoresUnicos = datosDB.slice(1).map(f => f[3] ? f[3].toString().toUpperCase().trim() : "").filter(n => n !== "").sort();
+            const setOperadores = [...new Set(listaOperadoresUnicos)];
+
+            datosPiscinas.forEach((row, index) => {
+                const piscina = row[0]; 
+                if (!piscina) return; 
+                const pUpper = piscina.toString().toUpperCase();
+                if (pUpper === "PISCINA" || pUpper === "ID" || pUpper === "TALLER") return; 
+
+                const responsableActual = row[2] || ""; 
+
+                let optionsHTML = `<option value="">-- SELECCIONAR --</option>`;
+                setOperadores.forEach(opName => {
+                    const selected = (opName === responsableActual.toUpperCase().trim()) ? "selected" : "";
+                    optionsHTML += `<option value="${opName}" ${selected}>${opName}</option>`;
+                });
+
+                const divRow = document.createElement('div');
+                divRow.className = 'asig-row';
+                divRow.innerHTML = `
+                    <div class="pool-name-box">${piscina}</div>
+                    <div>
+                        <select class="oper-select-box" onchange="registrarCambioOperador('${piscina}', ${index}, this.value)">
+                            ${optionsHTML}
+                        </select>
+                    </div>
+                `;
+                container.appendChild(divRow);
+            });
+        }
+
+        function registrarCambioOperador(piscina, rowIndex, nuevoOperador) {
+            cambiosAsignacion[rowIndex] = nuevoOperador;
+        }
+
+        function initMap() {
+            if (map) return; 
+            const lat = document.getElementById('tempLat').value !== "0.000000" ? document.getElementById('tempLat').value : -2.19616;
+            const lon = document.getElementById('tempLon').value !== "0.000000" ? document.getElementById('tempLon').value : -79.8862;
+            map = L.map('map').setView([lat, lon], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
+            markersGroup = L.layerGroup().addTo(map);
+        }
+
+        function cargarMapaRecorrido() {
+            if (!wb) return alert("No hay datos cargados.");
+            
+            const usuarioSel = document.getElementById('mapaUsuarioSelect').value;
+            if(!usuarioSel) return alert("Por favor, seleccione un USUARIO para ver su recorrido.");
+
+            const fechaInput = document.getElementById('fechaMapa').value; 
+            if (!fechaInput) return alert("Selecciona una fecha.");
+
+            initMap();
+            
+            const hPisSheet = wb.Sheets[wb.SheetNames[1]];
+            if (!hPisSheet) return alert("Error al leer hoja de Piscinas.");
+            const datosPiscinas = XLSX.utils.sheet_to_json(hPisSheet, { header: 1, raw: false });
+            
+            const piscinasDelUsuario = datosPiscinas
+                .filter(row => row[2] && row[2].toString().toUpperCase().trim() === usuarioSel)
+                .map(row => row[0].toString());
+
+            if(piscinasDelUsuario.length === 0) {
+                alert(`El usuario ${usuarioSel} no tiene piscinas asignadas actualmente.`);
+                return;
+            }
+
+            const [y, m, d] = fechaInput.split('-');
+            const fechaBusqueda = `${d}/${m}/${y}`; 
+            
+            cachedPuntosON = [];
+            cachedPuntosOFF = [];
+
+            const sheetOps = wb.Sheets["Hoja 3"];
+            if (sheetOps) {
+                const datos = XLSX.utils.sheet_to_json(sheetOps, { header: 1, raw: false });
+                datos.slice(1).forEach(row => {
+                    const piscinaRegistro = row[1] ? row[1].toString() : "";
+                    
+                    if(piscinasDelUsuario.includes(piscinaRegistro)) {
+                        
+                        if (row[3] === fechaBusqueda && row[7] && row[8]) {
+                            cachedPuntosON.push({ 
+                                lat: parseFloat(row[7]), 
+                                lon: parseFloat(row[8]), 
+                                desc: `🟢 ON: ${row[0]} (${piscinaRegistro})`, 
+                                hora: row[2] 
+                            });
+                        }
+                        
+                        if (row[5] === fechaBusqueda && row[9] && row[10]) {
+                            cachedPuntosOFF.push({ 
+                                lat: parseFloat(row[9]), 
+                                lon: parseFloat(row[10]), 
+                                desc: `🔴 OFF: ${row[0]} (${piscinaRegistro})`, 
+                                hora: row[4] 
+                            });
+                        }
+                    }
+                });
+            }
+
+            cachedPuntosON.sort((a, b) => a.hora.localeCompare(b.hora));
+            cachedPuntosOFF.sort((a, b) => a.hora.localeCompare(b.hora));
+
+            if (cachedPuntosON.length === 0 && cachedPuntosOFF.length === 0) {
+                markersGroup.clearLayers();
+                document.getElementById('infoMapa').innerText = `No hay registros del usuario ${usuarioSel} para esta fecha.`;
+                return;
+            }
+
+            document.getElementById('chkMapOn').checked = true;
+            document.getElementById('chkMapOff').checked = true;
+
+            renderizarMapaDesdeCache();
+        }
+
+        function renderizarMapaDesdeCache() {
+            if (!map || !markersGroup) return;
+            markersGroup.clearLayers(); 
+
+            const mostrarON = document.getElementById('chkMapOn').checked;
+            const mostrarOFF = document.getElementById('chkMapOff').checked;
+            const usuarioSel = document.getElementById('mapaUsuarioSelect').value;
+
+            let puntosVisibles = [];
+
+            if (mostrarON && cachedPuntosON.length > 0) {
+                let latlngsAzul = [];
+                cachedPuntosON.forEach(p => {
+                    if (!isNaN(p.lat) && !isNaN(p.lon) && p.lat !== 0) {
+                        latlngsAzul.push([p.lat, p.lon]);
+                        L.circleMarker([p.lat, p.lon], {
+                            color: 'blue', fillColor: '#007bff', fillOpacity: 0.8, radius: 8
+                        }).bindPopup(`<b>${p.hora}</b><br>${p.desc}`).addTo(markersGroup);
+                    }
+                });
+                if (latlngsAzul.length > 0) {
+                    L.polyline(latlngsAzul, { color: 'blue', weight: 4, opacity: 0.7 }).addTo(markersGroup);
+                    puntosVisibles = puntosVisibles.concat(latlngsAzul);
+                }
+            }
+
+            if (mostrarOFF && cachedPuntosOFF.length > 0) {
+                let latlngsRojo = [];
+                cachedPuntosOFF.forEach(p => {
+                    if (!isNaN(p.lat) && !isNaN(p.lon) && p.lat !== 0) {
+                        latlngsRojo.push([p.lat, p.lon]);
+                        L.circleMarker([p.lat, p.lon], {
+                            color: 'red', fillColor: '#ff0000', fillOpacity: 0.8, radius: 8
+                        }).bindPopup(`<b>${p.hora}</b><br>${p.desc}`).addTo(markersGroup);
+                    }
+                });
+                if (latlngsRojo.length > 0) {
+                    L.polyline(latlngsRojo, { color: 'red', weight: 4, opacity: 0.7, dashArray: '5, 5' }).addTo(markersGroup);
+                    puntosVisibles = puntosVisibles.concat(latlngsRojo);
+                }
+            }
+
+            document.getElementById('infoMapa').innerText = `Ruta de ${usuarioSel}: ${mostrarON ? cachedPuntosON.length : 0} ON, ${mostrarOFF ? cachedPuntosOFF.length : 0} OFF visibles.`;
+
+            if(puntosVisibles.length > 0) {
+                map.fitBounds(puntosVisibles);
+            }
+        }
+
+        function generarReporteHoras() {
+            const opcion = document.getElementById('opcionReporteSelect').value;
+            const body = document.getElementById('tablaHorasBody');
+            const labelCol1 = document.getElementById('labelHorasCol1');
+            body.innerHTML = "";
+            
+            if (!wb || !wb.Sheets["Hoja 3"] || !opcion) return;
+
+            const sheetData = XLSX.utils.sheet_to_json(wb.Sheets["Hoja 3"]);
+            let acumulador = {};
+
+            sheetData.forEach(row => {
+                let tiempoStr = row["HORAS_TRABAJO"];
+                if (tiempoStr && typeof tiempoStr === 'string' && tiempoStr.includes(":")) {
+                    const clave = opcion === "HORAS_AIRE" ? row["AIRE"] : row["PISCINA"];
+                    if (!clave) return;
+
+                    tiempoStr = tiempoStr.replace("'", "");
+                    const [h, m, s] = tiempoStr.split(":").map(Number);
+                    const segundosTotales = (h * 3600) + (m * 60) + s;
+
+                    acumulador[clave] = (acumulador[clave] || 0) + segundosTotales;
+                }
+            });
+
+            if(labelCol1) labelCol1.innerText = opcion === "HORAS_AIRE" ? "AIREADOR" : "PISCINA";
+
+            Object.keys(acumulador).forEach(key => {
+                const totalSeg = acumulador[key];
+                const horas = Math.floor(totalSeg / 3600);
+                const rowDiv = document.createElement('div');
+                rowDiv.className = 'hora-grid';
+                rowDiv.innerHTML = `<div class="hora-cell">${key}</div><div class="hora-cell" style="color:#1a3a70">${horas} HORAS</div>`;
+                body.appendChild(rowDiv);
+            });
+        }
+
+        function verificarMotivoTaller() {
+            const nuevaUbicacion = document.getElementById('ub_nueva_select').value;
+            const contenedor = document.getElementById('contenedorMotivoTaller');
+            if (nuevaUbicacion === "TALLER") {
+                contenedor.classList.remove('hidden');
+                document.getElementById('motivoTraslado').focus();
+            } else {
+                contenedor.classList.add('hidden');
+                document.getElementById('motivoTraslado').value = "";
+            }
+        }
+
+        function cambiarSubActividadMantenimiento() {
+            const sub = document.getElementById('mantenimientoSubSelect').value;
+            const cont = document.getElementById('vistaMantenimiento');
+            cont.innerHTML = "";
+            cont.scrollTop = 0; 
+            if (sub === "NUEVO") {
+                generarFormularioNuevoAireador();
+            } else if (sub === "CONSULTA") {
+                generarInterfazConsultaTaller();
+            }
+        }
+
+        function generarInterfazConsultaTaller() {
+            const cont = document.getElementById('vistaMantenimiento');
+            cont.innerHTML = `
+                <div class="fixed-header-row" style="display: grid; grid-template-columns: 1fr 1.5fr; margin-bottom: 8px; position: sticky; top: -10px; z-index: 100;">
+                    <div class="header-item">AIREADOR</div><div class="header-item">FECHA INGRESO TALLER</div>
+                </div>
+                <div id="listaTallerContenedor"></div>
+            `;
+            const listaCont = document.getElementById('listaTallerContenedor');
+            const hMov = wb.Sheets["MOV_AIR"];
+            const airesEnTaller = datosAires.slice(1).filter(f => f[4] && f[4].toString().toUpperCase() === "TALLER");
+
+            if (airesEnTaller.length === 0) {
+                listaCont.innerHTML = "<div style='text-align:center; padding:20px;'>ACTUALMENTE NO HAY AIREADORES EN TALLER</div>";
+                return;
+            }
+
+            if (!hMov) {
+                listaCont.innerHTML = "<div style='text-align:center; padding:20px;'>SIN DATOS EN MOV_AIR PARA CONSULTAR FECHAS</div>";
+                return;
+            }
+
+            const movData = XLSX.utils.sheet_to_json(hMov, { header: 1, raw: false });
+            airesEnTaller.forEach(aire => {
+                const idAir = aire[0];
+                const registrosAireador = movData.filter(m => m[0] === idAir && m[5] === "TALLER");
+                const ultimoRegistro = registrosAireador[registrosAireador.length - 1];
+
+                if (ultimoRegistro) {
+                    const fechaLimpia = (ultimoRegistro[6] || "").replace("'", "");
+                    const card = document.createElement('div');
+                    card.className = 'taller-card';
+                    card.innerHTML = `
+                        <div class="taller-row-top">
+                            <div class="taller-box-id">${idAir}</div>
+                            <div class="taller-box-fecha">${fechaLimpia}</div>
+                        </div>
+                        <div class="taller-row-mid">
+                            <div class="taller-box-label">DETALLE</div>
+                            <div class="taller-box-data">---</div>
+                        </div>
+                        <div class="taller-motivo-area">${ultimoRegistro[9] || "SIN MOTIVO ESPECIFICADO"}</div>
+                    `;
+                    listaCont.appendChild(card);
+                }
+            });
+        }
+
+        function generarFormularioNuevoAireador() {
+            const cont = document.getElementById('vistaMantenimiento');
+            let opcionesPiscina = listaPiscinas.map(p => `<option value="${p}">${p}</option>`).join('');
+            cont.innerHTML = `
+                <div class="form-mantenimiento-row">
+                    <div class="form-label">MARCA</div>
+                    <div class="form-input-container"><input type="text" id="new_marca"></div>
+                </div>
+                <div class="form-mantenimiento-row">
+                    <div class="form-label">MODELO</div>
+                    <div class="form-input-container"><input type="text" id="new_modelo"></div>
+                </div>
+                <div class="form-mantenimiento-row">
+                    <div class="form-label">SERIE</div>
+                    <div class="form-input-container"><input type="text" id="new_serie"></div>
+                </div>
+                <div class="form-mantenimiento-row">
+                    <div class="form-label">TIPO</div>
+                    <div class="form-input-container">
+                        <select id="new_tipo" onchange="actualizarPrefijoID()">
+                            <option value=""></option>
+                            <option value="ELECTRICO">ELECTRICO</option>
+                            <option value="MECANICO">MECANICO</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-mantenimiento-row">
+                    <div class="form-label">UBICACION</div>
+                    <div class="form-input-container">
+                        <select id="new_ubicacion">
+                            <option value=""></option>
+                            <option value=""></option>
+                            ${opcionesPiscina}
+                        </select>
+                    </div>
+                </div>
+                <div class="form-mantenimiento-row">
+                    <div class="form-label">ID_AIR</div>
+                    <div class="form-input-container"><input type="text" id="new_id_air"></div>
+                </div>
+            `;
+        }
+
+        function actualizarPrefijoID() {
+            const tipo = document.getElementById('new_tipo').value;
+            const inputID = document.getElementById('new_id_air');
+            if (tipo === "ELECTRICO") inputID.value = "AIRELEC-CO";
+            else if (tipo === "MECANICO") inputID.value = "AIRMEC-CO";
+            else inputID.value = "";
+            inputID.focus();
+        }
+
+        function cambiarPiscina() {
+            const pis = document.getElementById('piscinaSelect').value, op = document.getElementById('operacionSelect').value, cont = document.getElementById('listaAires');
+            cont.innerHTML = ''; colaDeRegistros = [];
+            cont.scrollTop = 0; 
+            if (!pis) return actualizarContadores(0,0);
+            
+            if (op === "ON_OFF_BLOQUE") {
+                document.getElementById('headerControl').classList.add('hidden');
+                if (pis === "ENCENDIDO MANUAL") { 
+                    document.getElementById('rowTiemposGlobales').classList.add('hidden'); 
+                    crearInterfazManualPorBloque(); 
+                }
+                else { 
+                    document.getElementById('rowTiemposGlobales').classList.remove('hidden'); 
+                    crearInterfazProgramada(); 
+                }
+            } else {
+                document.getElementById('headerControl').classList.remove('hidden');
+                datosAires.forEach(f => {
+                    if (f[4] && f[4].toString() === pis) {
+                        const st = obtenerUltimoEstado(f[0]);
+                        if (op === "VALIDAR" && st === "ENCENDER") {
+                            const div = document.createElement('div'); div.className = 'air-row';
+                            div.innerHTML = `<div id="lbl_${f[0]}" class="air-label validar-label-on">${f[0]}</div><button class="validar-check-btn" onclick="toggleValidacionCheck(this, '${f[0]}')">✅</button>`;
+                            cont.appendChild(div);
+                        } else if ((op === "APAGAR" && st === "ENCENDER") || (op === "ENCENDER" && st === "APAGAR")) {
+                            const div = document.createElement('div'); div.className = 'air-row';
+                            if(op === "ENCENDER" && pis === "TALLER") {
+                                div.innerHTML = `<div class="air-label">${f[0]}</div><div class="mantenimiento-label">MANTENIMIENTO</div>`;
+                            } else {
+                                div.innerHTML = `<div class="air-label">${f[0]}</div><button class="status-btn" style="background:${st === "ENCENDER" ? "#00ad1d" : "#ff0000"}" onclick="toggleAccion(this, '${f[0]}')">${st === "ENCENDER" ? "ON" : "OFF"}</button>`;
+                            }
+                            cont.appendChild(div);
+                        }
+                    }
+                });
+                recalcularContadoresDinamicos();
+            }
+        }
+
+        function recalcularContadoresDinamicos() {
+            const pis = document.getElementById('piscinaSelect').value;
+            if(!pis || pis.includes("ENCENDIDO")) return;
+            let te = 0, ta = 0;
+            datosAires.slice(1).forEach(f => {
+                if (f[4] && f[4].toString() === pis) {
+                    let st = obtenerUltimoEstado(f[0]);
+                    const cambio = colaDeRegistros.find(r => r.nombre === f[0]);
+                    if (cambio) st = (cambio.operacion.includes("ENCENDER")) ? "ENCENDER" : "APAGAR";
+                    st === "ENCENDER" ? te++ : ta++;
+                }
+            });
+            actualizarContadores(te, ta);
+        }
+
+        function toggleValidacionCheck(btn, n) {
+            const lbl = document.getElementById(`lbl_${n}`), pAct = document.getElementById('piscinaSelect').value;
+            colaDeRegistros = colaDeRegistros.filter(r => r.nombre !== n);
+            if (lbl.classList.contains('validar-label-on')) {
+                lbl.classList.replace('validar-label-on', 'validar-label-off'); btn.innerText = "❌";
+                colaDeRegistros.push({ nombre: n, piscina: pAct, operacion: "APAGADO VALIDADO" });
+            } else {
+                lbl.classList.replace('validar-label-off', 'validar-label-on'); btn.innerText = "✅";
+            }
+            recalcularContadoresDinamicos();
+        }
+
+        function toggleAccion(btn, n) {
+            const pAct = document.getElementById('piscinaSelect').value;
+            
+            // CAPTURA INMEDIATA DE DATOS AL PULSAR EL BOTON INDIVIDUAL
+            const lat = document.getElementById('tempLat').value;
+            const lon = document.getElementById('tempLon').value;
+            const fecha = getFechaActual();
+            const hora = getHoraActual();
+
+            colaDeRegistros = colaDeRegistros.filter(r => r.nombre !== n);
+            const nv = btn.innerText === "ON" ? "OFF" : "ON";
+            btn.innerText = nv; btn.style.background = nv === "ON" ? "#00ad1d" : "#ff0000";
+            
+            // GUARDAMOS LOS DATOS ESPECIFICOS EN EL OBJETO 'meta'
+            colaDeRegistros.push({ 
+                nombre: n, 
+                piscina: pAct, 
+                operacion: nv === "ON" ? "ENCENDER" : "APAGAR",
+                meta: { fecha, hora, lat, lon } 
+            });
+            recalcularContadoresDinamicos();
+        }
+
+        function generarListaHabilitacion() {
+            const cont = document.getElementById('tablaHabilitarBody'); 
+            cont.innerHTML = '';
+            const hPisSheet = wb.Sheets[wb.SheetNames[1]];
+            if (!hPisSheet) return;
+            const filas = XLSX.utils.sheet_to_json(hPisSheet, { header: 1, raw: false });
+            filas.forEach((f) => { 
+                if (!f[0] || f[0].toUpperCase() === "TALLER") return; 
+                let estOriginal = f[1] === "DESHABILITADA" ? "DESHABILITADA" : "HABILITADA";
+                let estActual = colaHabilitacion[f[0]] ? colaHabilitacion[f[0]] : estOriginal;
+                let row = document.createElement('div'); 
+                row.className = 'habilitar-grid'; 
+                row.innerHTML = `<div class="label-box" style="height:auto; font-size:11px;">${f[0]}</div>
+                                 <div class="status-box ${estActual === 'HABILITADA' ? 'status-habilitada' : 'status-deshabilitada'}">${estActual}</div>
+                                 <button class="action-btn" onclick="toggleEstadoPiscinaTemporal('${f[0]}', '${estActual}')">
+                                   <span>${estActual === 'HABILITADA' ? '✅' : '❌'}</span>
+                                 </button>`; 
+                cont.appendChild(row); 
+            });
+        }
+
+        function toggleEstadoPiscinaTemporal(nombre, estActual) {
+            const nuevoEst = estActual === "HABILITADA" ? "DESHABILITADA" : "HABILITADA";
+            if (nuevoEst === "DESHABILITADA") {
+                const hayEncendidos = datosAires.some(f => {
+                    return f[4] && f[4].toString() === nombre && obtenerUltimoEstado(f[0]) === "ENCENDER";
+                });
+                if (hayEncendidos) {
+                    alert(`ERROR: LA PISCINA ${nombre} TIENE AIREADORES ENCENDIDOS. APÁGALOS ANTES DE DESHABILITAR.`);
+                    return; 
+                }
+            }
+            colaHabilitacion[nombre] = nuevoEst;
+            generarListaHabilitacion();
+        }
+
+        function crearInterfazManualPorBloque() {
+            const cont = document.getElementById('listaAires');
+            cont.scrollTop = 0;
+            cont.innerHTML = `
+                <div class="manual-grid" style="background: #4a76c0; color:white; position: sticky; top: 0; z-index: 10; border-bottom: 2px solid white;">
+                    <div class="manual-cell">PISCINA</div>
+                    <div class="manual-cell">ON</div>
+                    <div class="manual-cell">OFF</div>
+                    <div class="manual-cell">SEL</div>
+                </div>`;
+
+            const hPisSheet = wb.Sheets[wb.SheetNames[1]];
+            const infoHabilitacion = hPisSheet ? XLSX.utils.sheet_to_json(hPisSheet, { header: 1, raw: false }) : [];
+
+            listaPiscinas.forEach(p => {
+                const metaPiscina = infoHabilitacion.find(f => f[0] === p);
+                if (metaPiscina && metaPiscina[1] === "DESHABILITADA") return;
+
+                let e = 0, a = 0;
+                datosAires.filter(f => f[4] && f[4].toString() === p).forEach(f => obtenerUltimoEstado(f[0]) === "ENCENDER" ? e++ : a++);
+                let row = document.createElement('div'); row.className = 'manual-grid'; row.style.background = '#e2eaf4'; row.style.color = 'black';
+                let switchHTML = `<label class="switch"><input type="checkbox" id="sw_${p}" onchange="toggleBloque('${p}', this)"><span class="slider"></span></label>`;
+                if (p === "TALLER") { switchHTML = `<div style="font-size:12px; color:#666">EN MANTENIMIENTO</div>`; }
+                row.innerHTML = `<div class="manual-cell">${p}</div><div class="manual-cell text-on">${e}</div><div class="manual-cell text-off">${a}</div><div class="manual-cell">${switchHTML}</div>`;
+                cont.appendChild(row);
+                if (p !== "TALLER") {
+                    let sw = document.getElementById(`sw_${p}`); 
+                    if (sw) {
+                        if (e > 0 && a === 0) sw.checked = true; 
+                        else if (e > 0 && a > 0) sw.indeterminate = true;
+                    }
+                }
+            });
+            recalcularGlobalBloque();
+        }
+
+        function toggleBloque(p, cb) { 
+            cb.indeterminate = false; 
+            let estDeseado = cb.checked ? "ENCENDER" : "APAGAR"; 
+            colaDeRegistros = colaDeRegistros.filter(r => r.piscina !== p); 
+            const aireadoresPiscina = datosAires.filter(f => f[4] && f[4].toString() === p);
+            aireadoresPiscina.forEach(a => { 
+                const idAire = a[0];
+                const estadoActual = obtenerUltimoEstado(idAire);
+                if (estDeseado === "APAGAR" && estadoActual === "ENCENDER") colaDeRegistros.push({ nombre: idAire, piscina: p, operacion: "APAGAR" });
+                else if (estDeseado === "ENCENDER" && estadoActual === "APAGAR") colaDeRegistros.push({ nombre: idAire, piscina: p, operacion: "ENCENDER" });
+            }); 
+            recalcularGlobalBloque(); 
+        }
+
+        function recalcularGlobalBloque() {
+            let te = 0, ta = 0;
+            datosAires.slice(1).forEach(f => { if (!f[0]) return; let st = obtenerUltimoEstado(f[0]); const enC = colaDeRegistros.find(r => r.nombre === f[0]); if (enC) st = enC.operacion; st === "ENCENDER" ? te++ : ta++; });
+            actualizarContadores(te, ta);
+        }
+
+        function crearInterfazProgramada() { 
+            const cont = document.getElementById('listaAires'); 
+            cont.scrollTop = 0;
+            cont.innerHTML = `
+                <div class="programado-grid" style="background: #4a76c0; color:white; position: sticky; top: 0; z-index: 10; border-bottom: 2px solid white;">
+                    <div class="prog-cell">PISCINA</div>
+                    <div class="prog-cell">H_ON</div>
+                    <div class="prog-cell">H_OFF</div>
+                    <div class="prog-cell">SEL</div>
+                </div>`; 
+
+            const hPisSheet = wb.Sheets[wb.SheetNames[1]];
+            const infoHabilitacion = hPisSheet ? XLSX.utils.sheet_to_json(hPisSheet, { header: 1, raw: false }) : [];
+
+            listaPiscinas.forEach(p => { 
+                const metaPiscina = infoHabilitacion.find(f => f[0] === p);
+                if (metaPiscina && metaPiscina[1] === "DESHABILITADA") return;
+
+                let row = document.createElement('div'); row.className = 'programado-grid'; row.style.background = '#e2eaf4'; row.style.color = 'black'; 
+                const yp = piscinasProgramadas[p];
+                row.innerHTML = `<div class="prog-cell">${p}</div><div class="prog-cell"><input type="text" id="hon_${p}" class="prog-input-cell" value="${yp?yp.hOn:''}" readonly></div><div class="prog-cell"><input type="text" id="hoff_${p}" class="prog-input-cell" value="${yp?yp.hOff:''}" readonly></div><div class="prog-cell"><input type="checkbox" id="chk_prog_${p}" style="width:25px;height:25px" ${yp?'checked':''} onchange="toggleProg('${p}', this)"></div>`; 
+                cont.appendChild(row); 
+            }); 
+        }
+
+        function replicarHoras() { const hOn = document.getElementById('globalHoraOn').value, hOff = document.getElementById('globalHoraOff').value; listaPiscinas.forEach(p => { if(document.getElementById(`hon_${p}`)) { document.getElementById(`hon_${p}`).value = hOn; document.getElementById(`hoff_${p}`).value = hOff; } }); }
+
+        function toggleProg(p, cb) { 
+            if (cb.checked) { 
+                const hOn = document.getElementById(`hon_${p}`).value, hOff = document.getElementById(`hoff_${p}`).value;
+                if(!hOn || !hOff) { alert("Define horas globales"); cb.checked = false; return; }
+                piscinasProgramadas[p] = { hOn, hOff };
+            } else delete piscinasProgramadas[p];
+        }
+
+        function cargarDatosUbicacion() { 
+            const aireNombre = document.getElementById('aireadorSelect').value;
+            const f = datosAires.find(f => f[0] === aireNombre); 
+            if(f) { 
+                if (obtenerUltimoEstado(aireNombre) === "ENCENDER") {
+                    alert("PARA CAMBIAR UBICACION APAGA EL AIREDOR");
+                    document.getElementById('aireadorSelect').value = ""; 
+                    document.getElementById('ub_nombre_aire').innerText = "---";
+                    document.getElementById('ub_actual_pisc').innerText = "---";
+                    return;
+                }
+                document.getElementById('ub_nombre_aire').innerText = f[0]; 
+                document.getElementById('ub_actual_pisc').innerText = f[4] || "---"; 
+            } 
+        }
+
+        function actualizarContadores(e, a) {
+            const enc = document.getElementById('countEncendidos');
+            const apa = document.getElementById('countApagados');
+            if(enc) enc.innerText = e;
+            if(apa) apa.innerText = a;
+        }
+        
+        function generarReporte() { 
+            const body = document.getElementById('tablaReporteBody'); if(!body) return;
+            body.innerHTML = ""; 
+            body.scrollTop = 0;
+            listaPiscinas.forEach(p => { 
+                let e = 0, a = 0; 
+                datosAires.forEach(f => { if (f[4] && f[4].toString() === p) obtenerUltimoEstado(f[0]) === "ENCENDER" ? e++ : a++; }); 
+                let row = document.createElement('div'); row.className = 'report-grid'; 
+                row.innerHTML = `<div class="report-cell">${p}</div><div class="report-cell ${e>0?'text-on':''}">${e}</div><div class="report-cell ${a>0?'text-off':''}">${a}</div>`; 
+                body.appendChild(row); 
+            }); 
+        }
+
+        function actualizarGraficos() {
+            let enc = 0, apa = 0, hab = 0, des = 0, elec = 0, mec = 0, operativos = 0, enTaller = 0;
+            datosAires.slice(1).forEach(f => { 
+                if(f[0]) { 
+                    obtenerUltimoEstado(f[0]) === "ENCENDER" ? enc++ : apa++; 
+                    let t = f[5] ? f[5].toString().toUpperCase() : ""; 
+                    if(t.includes("ELEC")) elec++; else if(t.includes("MEC")) mec++;
+                    if(f[4] && f[4].toString().toUpperCase() === "TALLER") enTaller++;
+                    else operativos++;
+                } 
+            });
+            const hPisSheet = wb.Sheets[wb.SheetNames[1]];
+            if(hPisSheet) { 
+                let h=0, d=0; 
+                XLSX.utils.sheet_to_json(hPisSheet,{header:1, raw: false}).forEach(f=>{if(f[0])f[1]==="DESHABILITADA"?d++:h++;}); 
+                hab=h; des=d; 
+            }
+            
+            const vEnc = document.getElementById('valEnc'); if(vEnc) vEnc.innerText = enc;
+            const vApa = document.getElementById('valApa'); if(vApa) vApa.innerText = apa;
+            const vHab = document.getElementById('valHab'); if(vHab) vHab.innerText = hab;
+            const vDes = document.getElementById('valDes'); if(vDes) vDes.innerText = des;
+            const vElec = document.getElementById('valElec'); if(vElec) vElec.innerText = elec;
+            const vMec = document.getElementById('valMec'); if(vMec) vMec.innerText = mec;
+            const vOper = document.getElementById('valOper'); if(vOper) vOper.innerText = operativos;
+            const vTall = document.getElementById('valTall'); if(vTall) vTall.innerText = enTaller;
+
+            if(document.getElementById('chartAires')) renderPie('chartAires', ['ENCENDIDOS', 'APAGADOS'], [enc, apa], ['#28a745', '#dc3545']);
+            if(document.getElementById('chartPiscinas')) renderPie('chartPiscinas', ['HABILITADAS', 'DESHABILITADAS'], [hab, des], ['#70ad47', '#5b9bd5']);
+            if(document.getElementById('chartTipos')) renderPie('chartTipos', ['ELECTRICOS', 'MECANICOS'], [elec, mec], ['#4472c4', '#ed7d31']);
+            if(document.getElementById('chartOperativos')) renderPie('chartOperativos', ['OPERATIVOS', 'EN TALLER'], [operativos, enTaller], ['#28a745', '#dc3545']);
+        }
+
+        function renderPie(id, labels, data, colors) {
+            const ctx = document.getElementById(id);
+            if(!ctx) return;
+            if (charts[id]) charts[id].destroy();
+            charts[id] = new Chart(ctx.getContext('2d'), { 
+                type: 'pie', 
+                data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderWidth: 1 }] }, 
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } }, datalabels: { color: '#fff', font: { weight: 'bold', size: 13 }, formatter: (v, c) => { let s = c.chart.data.datasets[0].data.reduce((a, b) => a + b, 0); return s > 0 ? ((v * 100) / s).toFixed(0) + "%" : ""; } } } } 
+            });
+        }
+
+        async function confirmarRegistro() {
+            const op = document.getElementById('operacionSelect').value;
+            const pModalidad = document.getElementById('piscinaSelect').value;
+
+            if (op === "ASIG_PISCINA") {
+                const llaves = Object.keys(cambiosAsignacion);
+                if (llaves.length === 0) return alert("NO HAY CAMBIOS EN LOS OPERADORES.");
+
+                if (confirm(`¿Actualizar ${llaves.length} operadores?`)) {
+                    const hPisSheet = wb.Sheets[wb.SheetNames[1]];
+                    const datos = XLSX.utils.sheet_to_json(hPisSheet, { header: 1, raw: false });
+                    
+                    llaves.forEach(idx => {
+                        if (!datos[idx]) datos[idx] = [];
+                        datos[idx][2] = cambiosAsignacion[idx]; 
+                    });
+
+                    wb.Sheets[wb.SheetNames[1]] = XLSX.utils.aoa_to_sheet(datos);
+                    await aplicarGuardado("Asignación de Operadores Actualizada.");
+                }
+                return;
+            }
+
+            if (op === "ON_OFF_BLOQUE" && pModalidad === "ENCENDIDO PROGRAMADO") {
+                const numProgs = Object.keys(piscinasProgramadas).length;
+                if (numProgs === 0) return alert("NO HAY PISCINAS SELECCIONADAS.");
+                alert(`SE HAN PRE-GUARDADO ${numProgs} PISCINAS.`);
+                document.getElementById('operacionSelect').value = "";
+                cambiarVista();
+                return;
+            }
+
+            const lat = document.getElementById('tempLat').value;
+            const lon = document.getElementById('tempLon').value;
+            const fechaActualFormat = getFechaActual();
+            const horaActualFormat = getHoraActual();
+
+            if (op === "MANTENIMIENTO") {
+                const subOp = document.getElementById('mantenimientoSubSelect').value;
+                if (subOp === "NUEVO") {
+                    const idAir = document.getElementById('new_id_air').value.trim();
+                    if (confirm(`¿Ingresar nuevo aireador ${idAir}?`)) {
+                        datosAires.push([idAir, document.getElementById('new_serie').value, document.getElementById('new_marca').value, document.getElementById('new_modelo').value, document.getElementById('new_ubicacion').value, document.getElementById('new_tipo').value, lat, lon]);
+                        await aplicarGuardado("Aireador registrado.");
+                    }
+                }
+            } else if (op === "HABILITAR_PS") { 
+                if (confirm(`¿Guardar cambios de habilitación?`)) {
+                    const hPisSheet = wb.Sheets[wb.SheetNames[1]];
+                    const filas = XLSX.utils.sheet_to_json(hPisSheet, { header: 1, raw: false });
+                    filas.forEach(f => { if(colaHabilitacion[f[0]]) f[1] = colaHabilitacion[f[0]]; });
+                    wb.Sheets[wb.SheetNames[1]] = XLSX.utils.aoa_to_sheet(filas);
+                    await aplicarGuardado("Habilitación guardada."); 
+                }
+            } else if (op === "UBICACION") {
+                const a = document.getElementById('ub_nombre_aire').innerText;
+                const n = document.getElementById('ub_nueva_select').value;
+                const motivo = document.getElementById('motivoTraslado').value.trim();
+                const i = datosAires.findIndex(f => f[0] === a);
+                if (i !== -1) {
+                    const ubAnt = datosAires[i][4] || "SIN UBICACION"; 
+                    if (!wb.Sheets["MOV_AIR"]) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["ID", "SERIE", "MARCA", "MODELO", "UB_ANT", "UB_ACT", "F_MOV", "LATITUD", "LONGITUD", "MOTIVO"]]), "MOV_AIR");
+                    const movData = XLSX.utils.sheet_to_json(wb.Sheets["MOV_AIR"], { header: 1, raw: false });
+                    movData.push([datosAires[i][0], datosAires[i][1], datosAires[i][2], datosAires[i][3], ubAnt, n, `${fechaActualFormat} ${horaActualFormat}`, lat, lon, motivo]);
+                    wb.Sheets["MOV_AIR"] = XLSX.utils.aoa_to_sheet(movData);
+                    datosAires[i][4] = n; 
+                    await aplicarGuardado("Ubicación registrada."); 
+                }
+            } else {
+                if (colaDeRegistros.length === 0) return alert("Sin cambios.");
+                if (confirm(`¿Registrar ${colaDeRegistros.length} cambios?`)) {
+                    let sheetData = XLSX.utils.sheet_to_json(wb.Sheets["Hoja 3"], { header: 1, raw: false });
+                    colaDeRegistros.forEach(r => {
+                        
+                        const hFinal = (r.meta && r.meta.hora) ? r.meta.hora : horaActualFormat;
+                        const fFinal = (r.meta && r.meta.fecha) ? r.meta.fecha : fechaActualFormat;
+                        const latFinal = (r.meta && r.meta.lat) ? r.meta.lat : lat;
+                        const lonFinal = (r.meta && r.meta.lon) ? r.meta.lon : lon;
+
+                        const val = r.operacion === "APAGADO VALIDADO" ? "APAGADO VALIDADO" : "";
+                        if (r.operacion === "ENCENDER") {
+                            sheetData.push([r.nombre, r.piscina, hFinal, fFinal, "", "", val, latFinal, lonFinal, "", "", ""]);
+                        } else {
+                            for (let i = sheetData.length - 1; i >= 1; i--) {
+                                if (sheetData[i][0] === r.nombre && sheetData[i][2] && !sheetData[i][4]) {
+                                    sheetData[i][4] = hFinal;
+                                    sheetData[i][5] = fFinal;
+                                    sheetData[i][6] = val;
+                                    sheetData[i][9] = latFinal; 
+                                    sheetData[i][10] = lonFinal; 
+                                    sheetData[i][11] = calcularHorasTrabajo(sheetData[i][2], sheetData[i][3], hFinal, fFinal);
+                                    break;
+                                }
+                            }
+                        }
+                    });
+                    wb.Sheets["Hoja 3"] = XLSX.utils.aoa_to_sheet(sheetData);
+                    await aplicarGuardado("Operaciones registradas.");
+                }
+            }
+        }
+
+        async function aplicarGuardado(msj) {
+            try {
+                wb.Sheets[wb.SheetNames[0]] = XLSX.utils.aoa_to_sheet(datosAires);
+                let payload = {};
+                wb.SheetNames.forEach(name => {
+                        payload[name] = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true });
+                });
+
+                localStorage.setItem('localDB', JSON.stringify(payload));
+
+                if (navigator.onLine) {
+                    await fetch(SCRIPT_URL, {
+                        method: "POST",
+                        mode: "no-cors",
+                        headers: { "Content-Type": "text/plain" },
+                        body: JSON.stringify(payload)
+                    });
+                    if(msj) alert(msj);
+                } else {
+                    let cola = JSON.parse(localStorage.getItem('pendingPayloads') || "[]");
+                    cola.push(payload);
+                    localStorage.setItem('pendingPayloads', JSON.stringify(cola));
+                    alert("CAMBIOS GUARDADOS LOCALMENTE (Sin conexión). Se sincronizarán al recuperar el internet.");
+                }
+
+                colaHabilitacion = {};
+                cambiosAsignacion = {};
+                document.getElementById('operacionSelect').value = "";
+                cambiarVista();
+            } catch (e) {
+                console.error(e);
+                alert("Error al procesar el guardado.");
+            }
+        }
+    </script>
+</body>
+</html>
