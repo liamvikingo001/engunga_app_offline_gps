@@ -189,6 +189,41 @@
         .map-check-label:active { transform: scale(0.95); }
         .chk-input { width: 20px; height: 20px; cursor: pointer; accent-color: #00ff2b; }
 
+        /* --- ESTILOS PARA MAPA FULLSCREEN --- */
+        .btn-fullscreen {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000; /* Para que quede por encima del mapa de Leaflet */
+            background: white;
+            color: black;
+            font-weight: bold;
+            font-size: 16px;
+            border: 2px solid #28a745;
+            border-radius: 5px;
+            padding: 5px 15px;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        
+        .map-wrapper-fs {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            z-index: 9999 !important;
+            background: #1a3a70 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        
+        .map-fs {
+            height: 100% !important;
+            border: none !important;
+            border-radius: 0 !important;
+            margin-top: 0 !important;
+        }
     </style>
 </head>
 <body onload="iniciarSistema()">
@@ -382,7 +417,10 @@
                         <button class="action-btn" style="background:#28a745; color:white; font-weight:bold;" onclick="cargarMapaRecorrido()">VER</button>
                     </div>
 
-                    <div id="map" class="map-container"></div>
+                    <div id="mapWrapper" style="position: relative; width: 100%; margin-top: 10px;">
+                        <button id="btnFullscreen" class="btn-fullscreen" onclick="toggleFullscreenMap()">ALL</button>
+                        <div id="map" class="map-container" style="margin-top: 0;"></div>
+                    </div>
                     <div id="infoMapa" style="margin-top:5px; font-size:12px; text-align:center;">Selecciona Usuario y Fecha.</div>
                     
                     <div class="map-legend-container">
@@ -1712,9 +1750,31 @@
                 alert("Error al procesar el guardado.");
             }
         }
+
+        // --- FUNCIÓN PARA PANTALLA COMPLETA DEL MAPA ---
+        let isMapFullscreen = false;
+        
+        function toggleFullscreenMap() {
+            const mapWrapper = document.getElementById('mapWrapper');
+            const mapDiv = document.getElementById('map');
+            const btn = document.getElementById('btnFullscreen');
+            
+            isMapFullscreen = !isMapFullscreen;
+            
+            if (isMapFullscreen) {
+                mapWrapper.classList.add('map-wrapper-fs');
+                mapDiv.classList.add('map-fs');
+                btn.innerText = "MIN"; // Cambia el texto para minimizar
+            } else {
+                mapWrapper.classList.remove('map-wrapper-fs');
+                mapDiv.classList.remove('map-fs');
+                btn.innerText = "ALL"; // Vuelve al texto original
+            }
+            
+            // Actualizamos el tamaño del mapa en Leaflet después de la transición
+            setTimeout(() => { if(map) map.invalidateSize(); }, 300);
+        }
     </script>
 </body>
 
 </html>
-
-
